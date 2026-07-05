@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>EFMB T1 Trainer — Treat Massive Hemorrhage</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+
+// Standalone storage shim (localStorage; falls back to memory)
+const _mem = {};
+window.storage = {
+  async get(k){ try { const v = localStorage.getItem(k); return v==null? null : {key:k, value:v}; } catch { return _mem[k]? {key:k,value:_mem[k]} : null; } },
+  async set(k,v){ try { localStorage.setItem(k,v); } catch { _mem[k]=v; } return {key:k,value:v}; }
+};
+const { useState, useEffect, useRef } = React;
+
+// ============================================================
+// DATA SPINE — verbatim from MEDCoE PAM 350-10, 14 June 2022
+// Worksheet #T1, 17 FEB 22 (pages A-25 to A-27)
+// verified: false → pending Board Chair red-line vs 1 JUN 2024
+// ============================================================
+const T1 = {
+  id: "T1",
+  title: "TREAT MASSIVE HEMORRHAGE",
+  sheetVersion: "Worksheet #T1, 17 FEB 22",
+  pamEdition: "MEDCoE PAM 350-10 • 14 June 2022",
+  verified: false,
+  task: "Treat Massive Hemorrhage",
+  conditions:
+    "Given three casualties with potential significant extremity and junctional wound hemorrhage in a simulated combat environment with the necessary materials to treat the casualties.",
+  standards:
+    "Perform all steps and measures correctly without causing further injury to the casualty.",
+  taskBasis:
+    "081-000-0049, 081-000-0048, 081-COM-1054, 081-68W-0081, 081-68W-0079, 081-68W-0091, 081-000-0064, 081-COM-0099, 081-000-0100, JTS TCCC Guidelines 05 NOV 2020; TASK MODIFIED FOR EFMB TESTING PURPOSES ONLY.",
+  steps: [
+    {
+      id: "1",
+      text: "Perform care under fire procedures.",
+      header: true,
+      subs: [
+        { id: "1a", text: "Take cover. Return fire before providing medical treatment.", kw: ["cover", "return fire"] },
+        { id: "1b", text: "Direct the casualties to return fire, move to cover, and apply self-aid if able.", kw: ["direct", "return fire", "cover", "self-aid"] },
+        { id: "1c", text: "Determine the scene safety/security.", kw: ["scene", "safety"],
+          note: "NOTE: Despite fire superiority being gained during the care under fire phase of care, it does not mean that the enemy threat has been eliminated. You must exercise caution when maneuvering to casualties utilizing available cover, concealment, and suppressive fire. If the tactical situation permits have the casualties move to your position exercising the same caution." },
+        { id: "1d", text: "Determine the number and location of the injured and severity of their injuries.", kw: ["number", "location", "severity"] },
+        { id: "1e", text: "Assess the casualties for life threatening extremity hemorrhage.", kw: ["assess", "extremity", "hemorrhage"],
+          note: "NOTE: Once fire superiority has been gained begin assessing and treating life threatening hemorrhage." },
+      ],
+    },
+    {
+      id: "2",
+      text: "Apply a hasty tourniquet utilizing the Combat Application Tourniquet (CAT) to control bleeding.",
+      header: true,
+      subs: [
+        { id: "2a", text: "Route the free running end of the CAT under the injured limb and through the friction adaptor. (If using a Gen-6 or earlier model of the CAT, the free running end must run through both openings of the friction adapter).", kw: ["free running end", "under", "friction adaptor"] },
+        { id: "2b", text: "Position the CAT high on the extremity over the clothing/uniform.", kw: ["high", "over", "clothing"] },
+        { id: "2c", text: "Pull the free running end of the self-adhering band tight and securely fasten it back on itself. Do not adhere the band past the windlass clip.", kw: ["tight", "fasten", "back on itself", "windlass clip"] },
+        { id: "2d", text: "Twist the windlass rod until bleeding has stopped.", kw: ["twist", "windlass", "bleeding", "stopped"],
+          cue: "EVALUATOR STATES: “THE BRIGHT RED BLEEDING HAS STOPPED,” AFTER CANDIDATE TWISTS WINDLASS TO AVOID INJURY TO THE SIMULATED CASUALTY.",
+          caution: "CAUTION: Do NOT over-tighten the tourniquet on the simulated casualty." },
+        { id: "2e", text: "Lock the windlass rod in place with the windlass clip.", kw: ["lock", "windlass", "clip"] },
+        { id: "2f", text: "Grasp the windlass strap, pull it tight and adhere it to the Velcro on the windlass clip.", kw: ["strap", "tight", "velcro"] },
+        { id: "2g", text: "Do not cover the tourniquet.", kw: ["not cover", "tourniquet"] },
+      ],
+    },
+    { id: "3", text: "Tactically transport the casualty, their weapon, and mission-essential equipment to cover, as required.", kw: ["transport", "weapon", "equipment", "cover"] },
+    { id: "4", text: "Immediately recheck the bleeding control measures.", kw: ["recheck", "bleeding"] },
+    {
+      id: "5",
+      text: "Perform tactical field care procedures.",
+      header: true,
+      subs: [
+        { id: "5a", text: "Establish a security perimeter.", kw: ["security", "perimeter"] },
+        { id: "5b", text: "Determine the casualty’s level of consciousness. (Alert, Verbal, Pain, Unresponsive - AVPU)", kw: ["consciousness", "avpu"] },
+        { id: "5c", text: "Immediately remove the weapon and communication equipment from any casualty with an altered mental status, if applicable.", kw: ["remove", "weapon", "altered"] },
+      ],
+    },
+    { id: "6", text: "Assess for unrecognized hemorrhage.", kw: ["assess", "unrecognized", "hemorrhage"],
+      note: "NOTE: Candidates will test on one junctional wound. They will complete step 7, 8, or 9 on one patient." },
+    {
+      id: "7",
+      branch: "inguinal",
+      text: "Treat an inguinal wound with a pressure dressing.",
+      header: true,
+      subs: [
+        { id: "7a", text: "Expose the injury, assess, and check for an exit wound.", kw: ["expose", "exit wound"] },
+        { id: "7b", text: "Pack inguinal wound with Combat Gauze and hold pressure for 3 minutes.", kw: ["pack", "combat gauze", "3 minutes"] },
+        { id: "7c", text: "Ensure the gauze extends 1-2 inches above the skin (if gauze does not extend 1-2 inches above skin place additional gauze), and flex the casualty's knee slightly.", kw: ["1-2 inches", "above", "flex", "knee"] },
+        { id: "7d", text: "Feed a cravat under the casualty's belt on the injured leg.", kw: ["cravat", "belt", "injured leg"] },
+        { id: "7e", text: "Tighten casualty’s belt, if applicable.", kw: ["tighten", "belt"] },
+        { id: "7f", text: "Place elastic bandage over the cravat and the dressing leaving a tail.", kw: ["elastic bandage", "cravat", "tail"] },
+        { id: "7g", text: "Wrap the wound circumferentially, ensuring all packing material is covered and that the elastic bandage is over the top of the free running end of the cravat.", kw: ["circumferentially", "packing", "covered"] },
+        { id: "7h", text: "Continue to wrap the wound, wrapping on alternating sides of the tail, while maintaining tension/pressure. Cover all packing material and secure the dressing by tying a non-slip knot with the end of the elastic bandage and tail.", kw: ["alternating", "tension", "non-slip knot"] },
+        { id: "7i", text: "Secure the tails and knots of the elastic bandage with 3 inch tape, wrapping a minimum of 1-1/2 times around.", kw: ["3 inch tape", "1-1/2"] },
+        { id: "7j", text: "Pull cravat upwards towards belt, secure using a non-slip knot, and straighten leg.", kw: ["cravat", "belt", "non-slip", "straighten"] },
+        { id: "7k", text: "Swathe legs together 2-3 inches above the knee.", kw: ["swathe", "legs", "2-3 inches", "knee"] },
+        { id: "7l", text: "Continue to assess wound for further bleeding.", kw: ["assess", "further bleeding"] },
+      ],
+    },
+    {
+      id: "8",
+      branch: "axillary",
+      text: "Treat an axillary wound with a pressure dressing.",
+      header: true,
+      subs: [
+        { id: "8a", text: "Expose the injury, assess, and check for an exit wound.", kw: ["expose", "exit wound"] },
+        { id: "8b", text: "Pack axillary wound with Combat Gauze and verbalize assistant to hold pressure for 3 minutes.", kw: ["pack", "combat gauze", "assistant", "3 minutes"] },
+        { id: "8c", text: "Ensure the gauze extends 1-2 inches above the skin (if gauze does not extend 1-2 inches above skin place additional gauze).", kw: ["1-2 inches", "above", "skin"] },
+        { id: "8d", text: "Place 6\" elastic bandage over shoulder, leaving tail parallel to arm on injured side, with remainder of elastic bandage wrap the wound cover all packing material going in anterior direction.", kw: ["elastic bandage", "shoulder", "tail", "anterior"] },
+        { id: "8e", text: "Pull elastic bandage taut over packing material and wrap tightly around injured shoulder (minimum of 3 wraps).", kw: ["taut", "3 wraps"] },
+        { id: "8f", text: "Maintaining tension, continue to wrap across back anchoring on opposite shoulder in a \"Figure 8\" pattern.", kw: ["tension", "opposite shoulder", "figure 8"] },
+        { id: "8g", text: "Secure and tie a non-slip knot to the remainder of elastic bandage tails.", kw: ["non-slip knot", "tails"] },
+        { id: "8h", text: "Secure elastic bandage tails and knot with 3 inch tape wrapping a minimum of 1-1/2 times around tail and knot.", kw: ["3 inch tape", "1-1/2"] },
+        { id: "8i", text: "Swathe arm to torso.", kw: ["swathe", "arm", "torso"] },
+        { id: "8j", text: "Continue to assess wound for further bleeding.", kw: ["assess", "further bleeding"] },
+      ],
+    },
+    {
+      id: "9",
+      branch: "neck",
+      text: "Treat a neck wound using a pressure dressing.",
+      header: true,
+      subs: [
+        { id: "9a", text: "Expose the injury, assess, and check for an exit wound.", kw: ["expose", "exit wound"] },
+        { id: "9b", text: "Pack neck wound with Combat Gauze and verbalize to direct the assistant to hold pressure for 3 minutes.", kw: ["pack", "combat gauze", "assistant", "3 minutes"] },
+        { id: "9c", text: "Ensure the gauze extends 1-2 inches above the skin (if gauze does not extend 1-2 inches above the skin, place additional gauze).", kw: ["1-2 inches", "above", "skin"] },
+        { id: "9d", text: "Place 6\" elastic bandage over the dressing leaving a tail. Wrap the elastic bandage, covering the packing material, in anterior direction under the opposite arm.", kw: ["elastic bandage", "tail", "anterior", "opposite arm"] },
+        { id: "9e", text: "Continue to wrap around neck and under arm pulling elastic bandage tightly for pressure, covering all packing material.", kw: ["around neck", "under arm", "tightly"] },
+        { id: "9f", text: "Secure dressing by tying a non-slip knot with end of elastic bandage and tail.", kw: ["non-slip knot", "tail"] },
+        { id: "9g", text: "Secure elastic bandage tails and knot with 3 inch tape wrapping a minimum of 1-1/2 times around tail and knot.", kw: ["3 inch tape", "1-1/2"] },
+        { id: "9h", text: "Swathe arm to torso.", kw: ["swathe", "arm", "torso"] },
+        { id: "9i", text: "Continue to assess wound for further bleeding.", kw: ["assess", "further bleeding"] },
+      ],
+    },
+    { id: "10", text: "Did not cause further injury to the casualty.", kw: ["further injury"] },
+    { id: "11", text: "Met all administrative requirements for this task.", kw: ["administrative"] },
+  ],
+};
+
+// ============================================================
+// SCENARIO TEMPLATES — generated variety, fixed standard.
+// Junctional site selects the step 7/8/9 branch per the sheet note.
+// ============================================================
+const SCENARIOS = [
+  { moi: "Small-arms fire during a dismounted patrol", limb: "right thigh", junctional: "inguinal",
+    setup: "Your squad takes effective small-arms fire moving through a wadi. One casualty is down in the open with bright red bleeding from the right thigh. A second casualty drags himself to cover clutching his groin." },
+  { moi: "IED strike on a dismounted element", limb: "left lower leg", junctional: "axillary",
+    setup: "An IED detonates on the trail element. You observe one casualty with a mangled left lower leg spurting bright red blood, and another slumped against a berm with heavy bleeding from under the left arm. Sporadic fire follows the blast." },
+  { moi: "Indirect fire on a patrol base", limb: "left arm", junctional: "neck",
+    setup: "Mortar rounds impact inside the perimeter. One casualty has an arterial bleed from fragmentation to the left upper arm. Another holds a blood-soaked bandana to the side of his neck. The FDC reports possible follow-on fire." },
+  { moi: "Ambush during a mounted movement, vehicles dismounted", limb: "right arm", junctional: "inguinal",
+    setup: "Your convoy is ambushed and dismounts to return fire. A gunner is hit in the right arm with pulsatile bleeding; a dismount collapses at the rear wheel with heavy bleeding from the groin crease. Contact is ongoing." },
+  { moi: "Grenade attack while clearing a compound", limb: "right lower leg", junctional: "axillary",
+    setup: "A grenade detonates in the courtyard. One casualty has massive bleeding below the right knee. Another was struck under the raised arm while shielding his face; his sleeve is saturated. The compound is not yet secure." },
+];
+
+// Flatten graded units for a given junctional branch
+function gradedUnits(junctional) {
+  const units = [];
+  for (const step of T1.steps) {
+    if (step.branch && step.branch !== junctional) continue;
+    if (step.subs) {
+      units.push({ ...step, isHeader: true });
+      for (const s of step.subs) units.push(s);
+    } else {
+      units.push(step);
+    }
+  }
+  return units;
+}
+
+const gradeableOf = (units) => units.filter((u) => !u.isHeader);
+
+// ============================================================
+// STORAGE
+// ============================================================
+const STORE_KEY = "efmb-t1-progress";
+async function loadProgress() {
+  try {
+    const r = await window.storage.get(STORE_KEY);
+    return r ? JSON.parse(r.value) : { stepStats: {}, attempts: [] };
+  } catch {
+    return { stepStats: {}, attempts: [] };
+  }
+}
+async function saveProgress(p) {
+  try { await window.storage.set(STORE_KEY, JSON.stringify(p)); } catch (e) { console.error("save failed", e); }
+}
+
+// ============================================================
+// VOICE — Web Speech API with graceful fallback
+// ============================================================
+function useVoice() {
+  const [status, setStatus] = useState("idle"); // idle|listening|blocked|unsupported
+  const [transcript, setTranscript] = useState("");
+  const recRef = useRef(null);
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setStatus("unsupported"); return; }
+    const rec = new SR();
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.lang = "en-US";
+    rec.onresult = (e) => { setTranscript(e.results[0][0].transcript); setStatus("idle"); };
+    rec.onerror = (e) => { setStatus(e.error === "not-allowed" || e.error === "service-not-allowed" ? "blocked" : "idle"); };
+    rec.onend = () => setStatus((s) => (s === "listening" ? "idle" : s));
+    recRef.current = rec;
+  }, []);
+  const listen = () => {
+    if (!recRef.current) return;
+    setTranscript("");
+    try { setStatus("listening"); recRef.current.start(); } catch { setStatus("blocked"); }
+  };
+  const stop = () => { try { recRef.current && recRef.current.stop(); } catch {} };
+  return { status, transcript, listen, stop, setTranscript };
+}
+
+function matchKeywords(transcript, kw) {
+  if (!transcript || !kw || kw.length === 0) return { hit: [], miss: kw || [], pass: false };
+  const t = transcript.toLowerCase();
+  const hit = [], miss = [];
+  for (const k of kw) (t.includes(k.toLowerCase()) ? hit : miss).push(k);
+  return { hit, miss, pass: hit.length / kw.length >= 0.6 };
+}
+
+// ============================================================
+// SHARED UI TOKENS
+// ============================================================
+const ink = "#1B1E19";
+const paper = "#FAF9F4";
+const olive = "#44522F";
+const goGreen = "#1F5C27";
+const noRed = "#9A2B2B";
+const amber = "#8F6512";
+const mono = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+function GoNoGo({ value, onChange, compact }) {
+  const btn = (label, active, color) => (
+    <button
+      onClick={() => onChange(value === label ? null : label)}
+      className={compact ? "px-2 py-1 text-xs font-bold border" : "px-3 py-1.5 text-sm font-bold border"}
+      style={{
+        fontFamily: mono,
+        borderColor: active ? color : "#C9C7BC",
+        background: active ? color : "transparent",
+        color: active ? "#FFF" : "#6B6A60",
+        borderRadius: 3,
+      }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <span className="inline-flex gap-1">
+      {btn("GO", value === "GO", goGreen)}
+      {btn("NO-GO", value === "NO-GO", noRed)}
+    </span>
+  );
+}
+
+function StepText({ unit, revealed = true, showBadges, stats }) {
+  const st = stats && stats[unit.id];
+  return (
+    <div className="py-2" style={{ borderBottom: "1px solid #E4E2D8" }}>
+      <div className="flex gap-2 items-baseline">
+        <span className="text-xs font-bold shrink-0" style={{ fontFamily: mono, color: olive, minWidth: 26 }}>{unit.id}</span>
+        <span className="text-sm leading-relaxed" style={{ color: ink, fontWeight: unit.isHeader ? 700 : 400 }}>
+          {revealed ? unit.text : "•••"}
+        </span>
+        {showBadges && st && st.nogo > 0 && (
+          <span className="text-xs px-1.5 rounded shrink-0" style={{ background: "#F6E3E3", color: noRed, fontFamily: mono }}>
+            {st.nogo}× NO-GO
+          </span>
+        )}
+      </div>
+      {revealed && unit.cue && (
+        <p className="text-xs mt-1 ml-8 font-semibold" style={{ color: olive, fontFamily: mono }}>{unit.cue}</p>
+      )}
+      {revealed && unit.caution && (
+        <p className="text-xs mt-1 ml-8 font-semibold" style={{ color: noRed }}>{unit.caution}</p>
+      )}
+      {revealed && unit.note && (
+        <p className="text-xs mt-1 ml-8 italic" style={{ color: "#5C5B52" }}>{unit.note}</p>
+      )}
+    </div>
+  );
+}
+
+function FormHeader() {
+  return (
+    <div className="p-3 mb-3" style={{ border: "1.5px solid " + ink, background: "#FFF" }}>
+      <p className="text-center font-bold text-sm" style={{ fontFamily: mono }}>EFMB Test Score Sheet</p>
+      <p className="text-center font-bold" style={{ fontFamily: mono }}>T1 — {T1.title}</p>
+      <p className="text-center text-xs mb-2" style={{ color: "#5C5B52" }}>(For use of this form, see MEDCOE Pam 350-10, the proponent is ATMC-OPE)</p>
+      <div className="text-xs space-y-1" style={{ fontFamily: mono }}>
+        <p><b>TASK:</b> {T1.task}</p>
+        <p><b>CONDITIONS:</b> {T1.conditions}</p>
+        <p><b>STANDARDS:</b> {T1.standards}</p>
+        <p style={{ color: "#5C5B52" }}><b>TASK BASIS:</b> {T1.taskBasis}</p>
+      </div>
+    </div>
+  );
+}
+
+function ScenarioCard({ scenario, onReroll }) {
+  return (
+    <div className="p-3 mb-3" style={{ background: "#EFEDE2", border: "1px solid #D6D3C4", borderRadius: 4 }}>
+      <div className="flex justify-between items-start gap-2">
+        <p className="text-xs font-bold" style={{ fontFamily: mono, color: olive }}>SCENARIO — {scenario.moi.toUpperCase()}</p>
+        {onReroll && (
+          <button onClick={onReroll} className="text-xs px-2 py-0.5 border rounded" style={{ borderColor: olive, color: olive }}>
+            New scenario
+          </button>
+        )}
+      </div>
+      <p className="text-sm mt-1 leading-relaxed" style={{ color: ink }}>{scenario.setup}</p>
+      <p className="text-xs mt-2" style={{ color: "#5C5B52" }}>
+        Extremity bleed: <b>{scenario.limb}</b> · Junctional wound: <b>{scenario.junctional}</b> (step {scenario.junctional === "inguinal" ? "7" : scenario.junctional === "axillary" ? "8" : "9"})
+      </p>
+    </div>
+  );
+}
+
+function ResultPanel({ grades, units, elapsed, onSave, saved }) {
+  const gradeable = gradeableOf(units);
+  const misses = gradeable.filter((u) => grades[u.id] === "NO-GO");
+  const ungraded = gradeable.filter((u) => !grades[u.id]);
+  const pass = misses.length === 0 && ungraded.length === 0;
+  return (
+    <div className="p-3 mt-3" style={{ border: "1.5px solid " + ink, background: "#FFF" }}>
+      <div className="flex items-center justify-between">
+        <p className="font-bold text-lg" style={{ fontFamily: mono, color: pass ? goGreen : noRed }}>
+          TASK RESULT: {ungraded.length > 0 ? "INCOMPLETE" : pass ? "GO" : "NO-GO"}
+        </p>
+        {elapsed != null && <p className="text-sm" style={{ fontFamily: mono }}>{fmtTime(elapsed)}</p>}
+      </div>
+      {ungraded.length > 0 && (
+        <p className="text-xs mt-1" style={{ color: amber }}>{ungraded.length} step(s) not yet graded.</p>
+      )}
+      {misses.length > 0 && (
+        <div className="mt-2">
+          <p className="text-xs font-bold" style={{ fontFamily: mono }}>REASON(S) FOR FAILURE</p>
+          {misses.map((m) => (
+            <p key={m.id} className="text-xs mt-0.5" style={{ color: noRed }}>{m.id}. {m.text}</p>
+          ))}
+        </div>
+      )}
+      <p className="text-xs mt-2 italic" style={{ color: "#5C5B52" }}>
+        Per the sheet standard, all steps and measures must be performed correctly — a single NO-GO fails the task. Rebuttals for TCCC tasks go to the test board.
+      </p>
+      {onSave && (
+        <button onClick={onSave} disabled={saved} className="mt-2 px-3 py-1.5 text-sm font-bold border rounded" style={{ borderColor: olive, color: saved ? "#9A9888" : olive }}>
+          {saved ? "Attempt saved" : "Save attempt"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function fmtTime(s) {
+  const m = Math.floor(s / 60), r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+
+// ============================================================
+// MODES
+// ============================================================
+function StudyMode({ stats }) {
+  const [branch, setBranch] = useState("inguinal");
+  const units = gradedUnits(branch);
+  return (
+    <div>
+      <FormHeader />
+      <div className="flex gap-2 mb-2 items-center">
+        <span className="text-xs" style={{ color: "#5C5B52" }}>Junctional branch:</span>
+        {["inguinal", "axillary", "neck"].map((b) => (
+          <button key={b} onClick={() => setBranch(b)} className="text-xs px-2 py-1 border rounded"
+            style={{ borderColor: branch === b ? olive : "#C9C7BC", background: branch === b ? olive : "transparent", color: branch === b ? "#FFF" : "#6B6A60" }}>
+            {b}
+          </button>
+        ))}
+      </div>
+      {units.map((u) => <StepText key={u.id} unit={u} showBadges stats={stats} />)}
+    </div>
+  );
+}
+
+function MentalMode({ scenario, onReroll, recordStat }) {
+  const units = gradedUnits(scenario.junctional);
+  const flat = gradeableOf(units);
+  const [idx, setIdx] = useState(0);
+  const [revealed, setRevealed] = useState(false);
+  const [grades, setGrades] = useState({});
+  const [done, setDone] = useState(false);
+  const voice = useVoice();
+  const [voiceOn, setVoiceOn] = useState(false);
+  const unit = flat[idx];
+  const km = voiceOn && voice.transcript ? matchKeywords(voice.transcript, unit && unit.kw) : null;
+
+  const mark = (g) => {
+    const next = { ...grades, [unit.id]: g };
+    setGrades(next);
+    recordStat(unit.id, g);
+    voice.setTranscript("");
+    if (idx + 1 < flat.length) { setIdx(idx + 1); setRevealed(false); }
+    else setDone(true);
+  };
+
+  if (done) return (
+    <div>
+      <ScenarioCard scenario={scenario} />
+      <ResultPanel grades={grades} units={units} elapsed={null} />
+      <button onClick={() => { setIdx(0); setRevealed(false); setGrades({}); setDone(false); onReroll(); }}
+        className="mt-3 px-3 py-1.5 text-sm font-bold border rounded" style={{ borderColor: olive, color: olive }}>
+        Run again with a new scenario
+      </button>
+    </div>
+  );
+
+  const parent = T1.steps.find((s) => s.subs && s.subs.some((x) => x.id === unit.id));
+  return (
+    <div>
+      <ScenarioCard scenario={scenario} onReroll={onReroll} />
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs" style={{ fontFamily: mono, color: "#5C5B52" }}>Step {idx + 1} of {flat.length}</p>
+        <button onClick={() => setVoiceOn(!voiceOn)} className="text-xs px-2 py-1 border rounded"
+          style={{ borderColor: voiceOn ? olive : "#C9C7BC", color: voiceOn ? olive : "#6B6A60" }}>
+          Voice: {voiceOn ? "on" : "off"}
+        </button>
+      </div>
+      <div className="p-3" style={{ background: "#FFF", border: "1px solid #D6D3C4", borderRadius: 4 }}>
+        {parent && <p className="text-xs font-bold mb-1" style={{ fontFamily: mono, color: olive }}>{parent.id}. {parent.text}</p>}
+        <p className="text-sm font-bold" style={{ fontFamily: mono }}>Recall step {unit.id}:</p>
+        {!revealed ? (
+          <div className="mt-2">
+            <p className="text-sm italic" style={{ color: "#5C5B52" }}>Say it out loud (or in your head), then reveal.</p>
+            {voiceOn && (
+              <div className="mt-2">
+                {voice.status === "unsupported" && <p className="text-xs" style={{ color: amber }}>Speech recognition isn’t available in this browser — recall verbally and reveal to self-check.</p>}
+                {voice.status === "blocked" && <p className="text-xs" style={{ color: amber }}>Microphone access is blocked in this environment. Download the file and open it directly in a browser for voice mode — recall verbally here and self-check.</p>}
+                {voice.status !== "unsupported" && voice.status !== "blocked" && (
+                  <button onClick={voice.status === "listening" ? voice.stop : voice.listen}
+                    className="px-3 py-1.5 text-sm font-bold border rounded"
+                    style={{ borderColor: olive, background: voice.status === "listening" ? olive : "transparent", color: voice.status === "listening" ? "#FFF" : olive }}>
+                    {voice.status === "listening" ? "Listening… tap to stop" : "Hold forth — tap to speak"}
+                  </button>
+                )}
+                {voice.transcript && <p className="text-xs mt-2 p-2 rounded" style={{ background: "#EFEDE2", fontFamily: mono }}>“{voice.transcript}”</p>}
+              </div>
+            )}
+            <button onClick={() => setRevealed(true)} className="mt-3 px-4 py-2 text-sm font-bold rounded w-full" style={{ background: ink, color: "#FFF" }}>
+              Reveal standard
+            </button>
+          </div>
+        ) : (
+          <div className="mt-2">
+            <StepText unit={unit} />
+            {km && (
+              <div className="text-xs mt-2 p-2 rounded" style={{ background: "#EFEDE2" }}>
+                <p style={{ fontFamily: mono }}>Key elements {km.pass ? "covered" : "missed"}:</p>
+                <p className="mt-1">
+                  {km.hit.map((k) => <span key={k} className="inline-block mr-1 mb-1 px-1.5 rounded" style={{ background: "#DCEBDA", color: goGreen }}>{k}</span>)}
+                  {km.miss.map((k) => <span key={k} className="inline-block mr-1 mb-1 px-1.5 rounded" style={{ background: "#F6E3E3", color: noRed }}>{k}</span>)}
+                </p>
+                <p className="mt-1 italic" style={{ color: "#5C5B52" }}>Suggestion only — you grade the rep. The transcript can be wrong; the standard can’t.</p>
+              </div>
+            )}
+            <p className="text-xs mt-2" style={{ color: "#5C5B52" }}>Did you have it — substance and sequence?</p>
+            <div className="mt-1 flex items-center gap-2">
+              <GoNoGo value={grades[unit.id] || null} onChange={mark} />
+              <button onClick={() => mark("unsure")} className="px-2 py-1 text-xs border rounded" style={{ borderColor: amber, color: amber }}>
+                Unsure — flag for study
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PhysicalMode({ scenario, onReroll, recordStat }) {
+  const units = gradedUnits(scenario.junctional);
+  const [phase, setPhase] = useState("brief"); // brief|running|grading
+  const [elapsed, setElapsed] = useState(0);
+  const [grades, setGrades] = useState({});
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (phase !== "running") return;
+    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(t);
+  }, [phase]);
+
+  const finishGrade = (id, g) => {
+    setGrades((prev) => ({ ...prev, [id]: g }));
+    recordStat(id, g);
+  };
+
+  return (
+    <div>
+      <ScenarioCard scenario={scenario} onReroll={phase === "brief" ? onReroll : undefined} />
+      {phase === "brief" && (
+        <div className="p-3" style={{ background: "#FFF", border: "1px solid #D6D3C4", borderRadius: 4 }}>
+          <p className="text-sm leading-relaxed">Work the casualty physically — mannequin, buddy, or air-drill. The checklist stays hidden until you call it complete, exactly as it would on the lane. The clock runs; the lane budget for all seven TCCC tasks across three casualties is 1:45:00, so know what this task costs you.</p>
+          <button onClick={() => setPhase("running")} className="mt-3 px-4 py-2 text-sm font-bold rounded w-full" style={{ background: goGreen, color: "#FFF" }}>
+            Begin — start clock
+          </button>
+        </div>
+      )}
+      {phase === "running" && (
+        <div className="p-3 text-center" style={{ background: "#FFF", border: "1px solid #D6D3C4", borderRadius: 4 }}>
+          <p className="text-4xl font-bold" style={{ fontFamily: mono }}>{fmtTime(elapsed)}</p>
+          <p className="text-xs mt-1" style={{ color: "#5C5B52" }}>Checklist concealed. Work the casualty.</p>
+          <button onClick={() => setPhase("grading")} className="mt-3 px-4 py-2 text-sm font-bold rounded w-full" style={{ background: ink, color: "#FFF" }}>
+            Task complete — reveal sheet and grade
+          </button>
+        </div>
+      )}
+      {phase === "grading" && (
+        <div>
+          <p className="text-xs mb-2 italic" style={{ color: "#5C5B52" }}>Grade every step honestly — GO only if you performed it, in substance and sequence. No middle option; the Pam has none.</p>
+          {units.map((u) =>
+            u.isHeader ? (
+              <StepText key={u.id} unit={u} />
+            ) : (
+              <div key={u.id} className="flex items-start justify-between gap-2" style={{ borderBottom: "1px solid #E4E2D8" }}>
+                <div className="flex-1"><StepText unit={u} /></div>
+                <div className="py-2 shrink-0"><GoNoGo compact value={grades[u.id] || null} onChange={(g) => finishGrade(u.id, g)} /></div>
+              </div>
+            )
+          )}
+          <ResultPanel grades={grades} units={units} elapsed={elapsed} saved={saved}
+            onSave={() => { setSaved(true); }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// APP
+// ============================================================
+function EFMBTrainer() {
+  const [mode, setMode] = useState("study");
+  const [scenario, setScenario] = useState(SCENARIOS[Math.floor(Math.random() * SCENARIOS.length)]);
+  const [progress, setProgress] = useState({ stepStats: {}, attempts: [] });
+  useEffect(() => { loadProgress().then(setProgress); }, []);
+
+  const recordStat = (id, g) => {
+    setProgress((prev) => {
+      const s = { ...(prev.stepStats[id] || { go: 0, nogo: 0, unsure: 0 }) };
+      if (g === "GO") s.go += 1; else if (g === "NO-GO") s.nogo += 1; else s.unsure += 1;
+      const next = { ...prev, stepStats: { ...prev.stepStats, [id]: s } };
+      saveProgress(next);
+      return next;
+    });
+  };
+
+  const reroll = () => setScenario(SCENARIOS[Math.floor(Math.random() * SCENARIOS.length)]);
+
+  const tabs = [
+    ["study", "Study"],
+    ["mental", "Mental drill"],
+    ["physical", "Physical"],
+  ];
+
+  return (
+    <div className="min-h-screen px-3 py-4" style={{ background: paper, color: ink, maxWidth: 720, margin: "0 auto" }}>
+      <div className="mb-3">
+        <p className="text-xs font-bold tracking-widest" style={{ fontFamily: mono, color: olive }}>EFMB LANE TRAINER · TCCC</p>
+        <h1 className="text-xl font-bold" style={{ fontFamily: mono }}>T1 — Treat Massive Hemorrhage</h1>
+      </div>
+
+      <div className="p-2 mb-3 text-xs" style={{ background: "#F3EBD9", border: "1px solid #E0D5B8", borderRadius: 4, color: "#6B5A28" }}>
+        <b>Baseline:</b> {T1.pamEdition} ({T1.sheetVersion}). <b>Not yet verified</b> against MEDCoE PAM 350-10, 1 JUN 2024 — pending Board Chair red-line. Train-up aid only; the signed Pam is the standard.
+      </div>
+
+      <div className="flex gap-1 mb-3">
+        {tabs.map(([k, label]) => (
+          <button key={k} onClick={() => setMode(k)} className="flex-1 py-2 text-sm font-bold border"
+            style={{ fontFamily: mono, borderColor: mode === k ? ink : "#C9C7BC", background: mode === k ? ink : "transparent", color: mode === k ? "#FFF" : "#6B6A60", borderRadius: 3 }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "study" && <StudyMode stats={progress.stepStats} />}
+      {mode === "mental" && <MentalMode scenario={scenario} onReroll={reroll} recordStat={recordStat} />}
+      {mode === "physical" && <PhysicalMode scenario={scenario} onReroll={reroll} recordStat={recordStat} />}
+
+      <p className="text-xs mt-4 text-center" style={{ color: "#8A887B" }}>
+        Performance measures are verbatim from the published score sheet. Scenarios are generated; standards are not.
+      </p>
+    </div>
+  );
+}
+
+const _root = ReactDOM.createRoot(document.getElementById("root"));
+_root.render(React.createElement(EFMBTrainer));
+
+</script>
+</body>
+</html>
