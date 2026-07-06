@@ -491,6 +491,7 @@ function MentalMode({ scenario, onReroll, recordStat, cadre }) {
   const [verdicts, setVerdicts] = useState({});
   const voice = useVoice();
   const [voiceOn, setVoiceOn] = useState(false);
+  const [auto, setAuto] = useState(false); // hands-free: advance when the candidate pauses
   const [typed, setTyped] = useState("");
 
   const unit = flat[idx];
@@ -516,16 +517,44 @@ function MentalMode({ scenario, onReroll, recordStat, cadre }) {
     recordStat(u.id, verdict);
   };
 
-  const submit = () => {
-    const recital = (typed.trim() || voice.transcript || "").trim();
-    const u = unit;
+  const advance = (u, recital) => {
     setRecitals((prev) => ({ ...prev, [u.id]: recital }));
     setVerdicts((prev) => ({ ...prev, [u.id]: { pending: true } }));
     gradeStep(u, recital);
     setTyped("");
     voice.setTranscript("");
     if (idx + 1 < flat.length) setIdx(idx + 1);
-    else setPhase("review");
+    else { setAuto(false); setPhase("review"); }
+  };
+
+  const submit = () => advance(unit, (typed.trim() || voice.transcript || "").trim());
+
+  // Hands-free loop: when auto is on, an arriving utterance is the current
+  // step's recital — record it and advance.
+  useEffect(() => {
+    if (phase !== "run" || !auto || !voice.transcript) return;
+    advance(flat[idx], voice.transcript.trim());
+  }, [voice.transcript]);
+
+  // Keep the mic re-armed for the next step while auto is on.
+  useEffect(() => {
+    if (phase !== "run" || !auto) return;
+    if (voice.status === "idle" && !voice.transcript) {
+      const t = setTimeout(() => voice.listen(), 150);
+      return () => clearTimeout(t);
+    }
+  }, [phase, auto, idx, voice.status, voice.transcript]);
+
+  // If the mic becomes unavailable, drop out of auto so the UI never gets stuck
+  // "auto on but can't listen" — falls back to the manual speak/type controls.
+  useEffect(() => {
+    if (auto && (voice.status === "blocked" || voice.status === "unsupported")) setAuto(false);
+  }, [auto, voice.status]);
+
+  const toggleAuto = () => {
+    const next = !auto;
+    setAuto(next);
+    if (!next) voice.stop();
   };
 
   const override = (u, newVerdict) => {
@@ -544,11 +573,19 @@ function MentalMode({ scenario, onReroll, recordStat, cadre }) {
       <div>
         <ScenarioCard scenario={scenario} onReroll={onReroll} />
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs" style={{ fontFamily: mono, color: "#5C5B52" }}>Step {idx + 1} of {flat.length} · reciting</p>
-          <button onClick={() => setVoiceOn(!voiceOn)} className="text-xs px-2 py-1 border rounded"
-            style={{ borderColor: voiceOn ? olive : "#C9C7BC", color: voiceOn ? olive : "#6B6A60" }}>
-            Voice: {voiceOn ? "on" : "off"}
-          </button>
+          <p className="text-xs" style={{ fontFamily: mono, color: "#5C5B52" }}>Step {idx + 1} of {flat.length} · {auto ? "auto — recite, pause to advance" : "reciting"}</p>
+          <div className="flex gap-1">
+            {voiceOn && voice.status !== "unsupported" && voice.status !== "blocked" && (
+              <button onClick={toggleAuto} className="text-xs px-2 py-1 border rounded"
+                style={{ fontFamily: mono, borderColor: auto ? olive : "#C9C7BC", background: auto ? olive : "transparent", color: auto ? "#FFF" : "#6B6A60" }}>
+                Auto: {auto ? "on" : "off"}
+              </button>
+            )}
+            <button onClick={() => { const n = !voiceOn; setVoiceOn(n); if (!n) { setAuto(false); voice.stop(); } }} className="text-xs px-2 py-1 border rounded"
+              style={{ borderColor: voiceOn ? olive : "#C9C7BC", color: voiceOn ? olive : "#6B6A60" }}>
+              Voice: {voiceOn ? "on" : "off"}
+            </button>
+          </div>
         </div>
         <div className="p-3" style={{ background: "#FFF", border: "1px solid #D6D3C4", borderRadius: 4 }}>
           {parent && <p className="text-xs font-bold mb-1" style={{ fontFamily: mono, color: olive }}>{parent.id}. {parent.text}</p>}
@@ -558,7 +595,12 @@ function MentalMode({ scenario, onReroll, recordStat, cadre }) {
             <div className="mt-2">
               {voice.status === "unsupported" && <p className="text-xs" style={{ color: amber }}>Speech recognition isn't available in this browser — type the recital instead.</p>}
               {voice.status === "blocked" && <p className="text-xs" style={{ color: amber }}>Microphone access is blocked. Check the browser's site permissions, or type the recital instead.</p>}
-              {voice.status !== "unsupported" && voice.status !== "blocked" && (
+              {auto && voice.status !== "unsupported" && voice.status !== "blocked" && (
+                <p className="text-xs font-bold" style={{ fontFamily: mono, color: voice.status === "listening" ? goGreen : olive }}>
+                  {voice.status === "listening" ? "● Listening — recite this step, then pause to advance" : "…arming mic"}
+                </p>
+              )}
+              {!auto && voice.status !== "unsupported" && voice.status !== "blocked" && (
                 <button onClick={voice.status === "listening" ? voice.stop : voice.listen}
                   className="px-3 py-1.5 text-sm font-bold border rounded"
                   style={{ borderColor: olive, background: voice.status === "listening" ? olive : "transparent", color: voice.status === "listening" ? "#FFF" : olive }}>
