@@ -261,8 +261,30 @@ async function callClaude(prompt) {
   return d.text || null;
 }
 
-async function askCadre(unit, transcript) {
-  const p = `You are an EFMB evaluator coaching a candidate during train-up week. The ONLY standard is the published performance measure from MEDCoE PAM 350-10 (Worksheet #T1), verbatim: "${unit.text}". Required elements: ${(unit.kw || []).join(", ")}. The candidate, reciting from memory, said: "${transcript}". Judge only whether the candidate captured the substance of the published measure. Do not add, update, or substitute any medical standard of your own. Respond ONLY with JSON, no markdown fences: {"pass": true or false, "missing": ["element", ...], "correction": "1-2 sentences in the voice of a firm, professional evaluator; quote the exact words of the published measure for anything missed"}`;
+// Rubric store — the board's labeled GO/NO-GO decisions per step, kept in this
+// browser (localStorage) for now. Each correction is fed back to the cadre so
+// it grades consistently with what the board has taught it. (No model retraining
+// happens; these are examples handed to the cadre on every grading.)
+const RUBRIC_STORE = "efmb-t1-rubric";
+function getRubric() { try { return JSON.parse(localStorage.getItem(RUBRIC_STORE) || "{}"); } catch { return {}; } }
+function saveRubric(r) { try { localStorage.setItem(RUBRIC_STORE, JSON.stringify(r)); } catch {} }
+function examplesFor(stepId) { const r = getRubric(); return r[stepId] || []; }
+function addExample(stepId, recital, verdict) {
+  if (!recital || !recital.trim()) return;
+  const r = getRubric();
+  const list = (r[stepId] || []).filter((e) => e.recital !== recital);
+  list.push({ recital, verdict });
+  r[stepId] = list.slice(-8); // cap so the prompt stays bounded
+  saveRubric(r);
+}
+function exampleCount() { const r = getRubric(); return Object.values(r).reduce((n, l) => n + l.length, 0); }
+
+async function askCadre(unit, transcript, examples) {
+  const exBlock = (examples && examples.length)
+    ? "The board has already graded these recitals for THIS exact step. Treat them as binding precedent and grade consistently with them:\n" +
+      examples.map((e) => `- "${e.recital}" => ${e.verdict}`).join("\n") + "\n\n"
+    : "";
+  const p = `You are an EFMB evaluator grading a candidate's recall of ONE performance measure during train-up. The published measure (verbatim, MEDCoE PAM 350-10 Worksheet #T1) is the standard: "${unit.text}". Key elements: ${(unit.kw || []).join(", ")}. ${exBlock}The candidate, reciting from memory, said: "${transcript}". Decide GO or NO-GO: GO if the recital captures the substance of the published measure and is consistent with any board precedent above; NO-GO otherwise. Do not invent a medical standard of your own. Respond ONLY with JSON, no markdown fences: {"pass": true or false, "missing": ["element", ...], "correction": "1-2 sentences in the voice of a firm, professional evaluator; quote the exact words of the published measure for anything missed"}`;
   try {
     const text = await callClaude(p);
     if (!text) return { offline: true };
@@ -446,151 +468,180 @@ function StudyMode({ stats }) {
   );
 }
 
+function VerdictBadge({ verdict, source }) {
+  const color = verdict === "GO" ? goGreen : noRed;
+  const label = source === "override" ? " (yours)" : source === "keyword" ? " (kw)" : "";
+  return (
+    <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ fontFamily: mono, background: verdict === "GO" ? "#DCEBDA" : "#F6E3E3", color }}>
+      {verdict}{label}
+    </span>
+  );
+}
+
+// Run the whole scenario reciting each step; the cadre grades every step; then
+// a verdict sheet shows GO/NO-GO for all steps and the board adjusts any of
+// them. Each adjustment is stored (this browser) and fed back so the cadre
+// grades that way next time.
 function MentalMode({ scenario, onReroll, recordStat, cadre }) {
   const units = gradedUnits(scenario.junctional);
   const flat = gradeableOf(units);
+  const [phase, setPhase] = useState("run"); // run | review
   const [idx, setIdx] = useState(0);
-  const [revealed, setRevealed] = useState(false);
-  const [grades, setGrades] = useState({});
-  const [done, setDone] = useState(false);
+  const [recitals, setRecitals] = useState({});
+  const [verdicts, setVerdicts] = useState({});
   const voice = useVoice();
   const [voiceOn, setVoiceOn] = useState(false);
   const [typed, setTyped] = useState("");
-  const [cadreResp, setCadreResp] = useState(null);
-  const [cadreBusy, setCadreBusy] = useState(false);
+
   const unit = flat[idx];
-  const km = voice.transcript ? matchKeywords(voice.transcript, unit && unit.kw) : null;
+  const parent = unit && T1.steps.find((s) => s.subs && s.subs.some((x) => x.id === unit.id));
 
-  useEffect(() => {
-    if (!cadre || !voice.transcript || revealed || done) return;
-    let live = true;
-    setCadreBusy(true);
-    askCadre(unit, voice.transcript).then((r) => {
-      if (!live) return;
-      setCadreBusy(false);
-      setCadreResp(r);
-      if (r.offline || r.pass) setRevealed(true);
-    });
-    return () => { live = false; };
-  }, [voice.transcript]);
-
-  const mark = (g) => {
-    const next = { ...grades, [unit.id]: g };
-    setGrades(next);
-    recordStat(unit.id, g);
-    voice.setTranscript("");
-    setTyped("");
-    setCadreResp(null);
-    if (idx + 1 < flat.length) { setIdx(idx + 1); setRevealed(false); }
-    else setDone(true);
+  const gradeStep = async (u, recital) => {
+    let verdict = null, source = "keyword", correction = "", missing = [];
+    if (cadre && recital.trim()) {
+      const r = await askCadre(u, recital, examplesFor(u.id));
+      if (!r.offline) {
+        verdict = r.pass ? "GO" : "NO-GO";
+        source = "cadre";
+        correction = r.correction || "";
+        missing = r.missing || [];
+      }
+    }
+    if (!verdict) {
+      const km = matchKeywords(recital, u.kw);
+      verdict = recital.trim() && km.pass ? "GO" : "NO-GO";
+      if (!recital.trim()) correction = "No recital given.";
+    }
+    setVerdicts((prev) => ({ ...prev, [u.id]: { verdict, source, correction, missing } }));
+    recordStat(u.id, verdict);
   };
 
-  if (done) return (
-    <div>
-      <ScenarioCard scenario={scenario} />
-      <ResultPanel grades={grades} units={units} elapsed={null} />
-      <button onClick={() => { setIdx(0); setRevealed(false); setGrades({}); setDone(false); onReroll(); }}
-        className="mt-3 px-3 py-1.5 text-sm font-bold border rounded" style={{ borderColor: olive, color: olive }}>
-        Run again with a new scenario
-      </button>
-    </div>
-  );
+  const submit = () => {
+    const recital = (typed.trim() || voice.transcript || "").trim();
+    const u = unit;
+    setRecitals((prev) => ({ ...prev, [u.id]: recital }));
+    setVerdicts((prev) => ({ ...prev, [u.id]: { pending: true } }));
+    gradeStep(u, recital);
+    setTyped("");
+    voice.setTranscript("");
+    if (idx + 1 < flat.length) setIdx(idx + 1);
+    else setPhase("review");
+  };
 
-  const parent = T1.steps.find((s) => s.subs && s.subs.some((x) => x.id === unit.id));
-  return (
-    <div>
-      <ScenarioCard scenario={scenario} onReroll={onReroll} />
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs" style={{ fontFamily: mono, color: "#5C5B52" }}>Step {idx + 1} of {flat.length}</p>
-        <button onClick={() => setVoiceOn(!voiceOn)} className="text-xs px-2 py-1 border rounded"
-          style={{ borderColor: voiceOn ? olive : "#C9C7BC", color: voiceOn ? olive : "#6B6A60" }}>
-          Voice: {voiceOn ? "on" : "off"}
-        </button>
-      </div>
-      <div className="p-3" style={{ background: "#FFF", border: "1px solid #D6D3C4", borderRadius: 4 }}>
-        {parent && <p className="text-xs font-bold mb-1" style={{ fontFamily: mono, color: olive }}>{parent.id}. {parent.text}</p>}
-        <p className="text-sm font-bold" style={{ fontFamily: mono }}>Recall step {unit.id}:</p>
-        {!revealed ? (
-          <div className="mt-2">
-            <p className="text-sm italic" style={{ color: "#5C5B52" }}>Say it out loud (or in your head), then reveal.</p>
-            {voiceOn && (
-              <div className="mt-2">
-                {voice.status === "unsupported" && <p className="text-xs" style={{ color: amber }}>Speech recognition isn't available in this browser — recall verbally and reveal to self-check.</p>}
-                {voice.status === "blocked" && <p className="text-xs" style={{ color: amber }}>Microphone access is blocked. Check the browser's site permissions for this page, then try again — or recall verbally here and self-check.</p>}
-                {voice.status !== "unsupported" && voice.status !== "blocked" && (
-                  <button onClick={voice.status === "listening" ? voice.stop : voice.listen}
-                    className="px-3 py-1.5 text-sm font-bold border rounded"
-                    style={{ borderColor: olive, background: voice.status === "listening" ? olive : "transparent", color: voice.status === "listening" ? "#FFF" : olive }}>
-                    {voice.status === "listening" ? "Listening… tap to stop" : "Hold forth — tap to speak"}
-                  </button>
-                )}
-                {voice.transcript && <p className="text-xs mt-2 p-2 rounded" style={{ background: "#EFEDE2", fontFamily: mono }}>"{voice.transcript}"</p>}
-              </div>
-            )}
-            {cadre && (
-              <div className="mt-2 flex gap-1">
-                <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="…or type your recital for the cadre"
-                  className="flex-1 text-xs p-2 border rounded" style={{ borderColor: "#C9C7BC", background: "#FFF" }} />
-                <button onClick={() => { if (typed.trim()) voice.setTranscript(typed.trim()); }}
-                  className="px-2 py-1 text-xs font-bold border rounded" style={{ borderColor: olive, color: olive }}>
-                  Submit
+  const override = (u, newVerdict) => {
+    if (!newVerdict) return; // ignore a click that would clear the verdict
+    setVerdicts((prev) => ({ ...prev, [u.id]: { ...(prev[u.id] || {}), verdict: newVerdict, source: "override" } }));
+    addExample(u.id, recitals[u.id] || "", newVerdict);
+  };
+
+  const restart = () => {
+    setPhase("run"); setIdx(0); setRecitals({}); setVerdicts({});
+    setTyped(""); voice.setTranscript(""); onReroll();
+  };
+
+  if (phase === "run") {
+    return (
+      <div>
+        <ScenarioCard scenario={scenario} onReroll={onReroll} />
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs" style={{ fontFamily: mono, color: "#5C5B52" }}>Step {idx + 1} of {flat.length} · reciting</p>
+          <button onClick={() => setVoiceOn(!voiceOn)} className="text-xs px-2 py-1 border rounded"
+            style={{ borderColor: voiceOn ? olive : "#C9C7BC", color: voiceOn ? olive : "#6B6A60" }}>
+            Voice: {voiceOn ? "on" : "off"}
+          </button>
+        </div>
+        <div className="p-3" style={{ background: "#FFF", border: "1px solid #D6D3C4", borderRadius: 4 }}>
+          {parent && <p className="text-xs font-bold mb-1" style={{ fontFamily: mono, color: olive }}>{parent.id}. {parent.text}</p>}
+          <p className="text-sm font-bold" style={{ fontFamily: mono }}>Recite step {unit.id}:</p>
+          <p className="text-sm italic mt-1" style={{ color: "#5C5B52" }}>Say or type the standard for this step. The cadre grades it; nothing reveals until the end.</p>
+          {voiceOn && (
+            <div className="mt-2">
+              {voice.status === "unsupported" && <p className="text-xs" style={{ color: amber }}>Speech recognition isn't available in this browser — type the recital instead.</p>}
+              {voice.status === "blocked" && <p className="text-xs" style={{ color: amber }}>Microphone access is blocked. Check the browser's site permissions, or type the recital instead.</p>}
+              {voice.status !== "unsupported" && voice.status !== "blocked" && (
+                <button onClick={voice.status === "listening" ? voice.stop : voice.listen}
+                  className="px-3 py-1.5 text-sm font-bold border rounded"
+                  style={{ borderColor: olive, background: voice.status === "listening" ? olive : "transparent", color: voice.status === "listening" ? "#FFF" : olive }}>
+                  {voice.status === "listening" ? "Listening… tap to stop" : "Hold forth — tap to speak"}
                 </button>
-              </div>
-            )}
-            {cadreBusy && <p className="text-xs mt-2 italic" style={{ color: olive }}>Cadre is listening…</p>}
-            {cadreResp && !cadreResp.offline && !cadreResp.pass && !revealed && (
-              <div className="mt-2 p-2" style={{ background: "#F6E3E3", border: "1.5px solid " + noRed, borderRadius: 4 }}>
-                <p className="text-xs font-bold" style={{ fontFamily: mono, color: noRed }}>STOP — CORRECTION</p>
-                <p className="text-sm mt-1" style={{ color: ink }}>{cadreResp.correction}</p>
-                {cadreResp.missing && cadreResp.missing.length > 0 && (
-                  <p className="text-xs mt-1" style={{ color: noRed }}>Missing: {cadreResp.missing.join(", ")}</p>
-                )}
-                <div className="mt-2 flex gap-2">
-                  <button onClick={() => { voice.setTranscript(""); setTyped(""); setCadreResp(null); }}
-                    className="px-3 py-1.5 text-xs font-bold rounded" style={{ background: noRed, color: "#FFF" }}>
-                    Say it again
-                  </button>
-                  <button onClick={() => setRevealed(true)} className="px-3 py-1.5 text-xs font-bold border rounded" style={{ borderColor: ink, color: ink }}>
-                    Show me the standard
-                  </button>
-                </div>
-              </div>
-            )}
-            <button onClick={() => setRevealed(true)} className="mt-3 px-4 py-2 text-sm font-bold rounded w-full" style={{ background: ink, color: "#FFF" }}>
-              Reveal standard
+              )}
+              {voice.transcript && <p className="text-xs mt-2 p-2 rounded" style={{ background: "#EFEDE2", fontFamily: mono }}>"{voice.transcript}"</p>}
+            </div>
+          )}
+          <div className="mt-2">
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="type your recital"
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              className="w-full text-xs p-2 border rounded" style={{ borderColor: "#C9C7BC", background: "#FFF" }} />
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button onClick={submit} className="flex-1 px-4 py-2 text-sm font-bold rounded" style={{ background: ink, color: "#FFF" }}>
+              {idx + 1 < flat.length ? "Submit & next" : "Submit & finish"}
+            </button>
+            <button onClick={() => { setTyped(""); voice.setTranscript(""); submit(); }}
+              className="px-3 py-2 text-xs font-bold border rounded" style={{ borderColor: "#C9C7BC", color: "#6B6A60" }}>
+              Skip
             </button>
           </div>
-        ) : (
-          <div className="mt-2">
-            <StepText unit={unit} />
-            {cadreResp && !cadreResp.offline && cadreResp.pass && (
-              <p className="text-xs mt-1 p-2 rounded" style={{ background: "#DCEBDA", color: goGreen }}>
-                <b style={{ fontFamily: mono }}>CADRE:</b> {cadreResp.correction || "Good — that captures the measure. Keep moving."}
-              </p>
-            )}
-            {cadreResp && cadreResp.offline && (
-              <p className="text-xs mt-1 italic" style={{ color: amber }}>AI cadre unavailable — the cadre service didn't respond. The keyword check below stands in.</p>
-            )}
-            {km && (
-              <div className="text-xs mt-2 p-2 rounded" style={{ background: "#EFEDE2" }}>
-                <p style={{ fontFamily: mono }}>Key elements {km.pass ? "covered" : "missed"}:</p>
-                <p className="mt-1">
-                  {km.hit.map((k) => <span key={k} className="inline-block mr-1 mb-1 px-1.5 rounded" style={{ background: "#DCEBDA", color: goGreen }}>{k}</span>)}
-                  {km.miss.map((k) => <span key={k} className="inline-block mr-1 mb-1 px-1.5 rounded" style={{ background: "#F6E3E3", color: noRed }}>{k}</span>)}
-                </p>
-                <p className="mt-1 italic" style={{ color: "#5C5B52" }}>Suggestion only — you grade the rep. The transcript can be wrong; the standard can't.</p>
-              </div>
-            )}
-            <p className="text-xs mt-2" style={{ color: "#5C5B52" }}>Did you have it — substance and sequence?</p>
-            <div className="mt-1 flex items-center gap-2">
-              <GoNoGo value={grades[unit.id] || null} onChange={mark} />
-              <button onClick={() => mark("unsure")} className="px-2 py-1 text-xs border rounded" style={{ borderColor: amber, color: amber }}>
-                Unsure — flag for study
-              </button>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
+    );
+  }
+
+  // review phase
+  const anyPending = flat.some((u) => verdicts[u.id] && verdicts[u.id].pending);
+  const misses = flat.filter((u) => verdicts[u.id] && verdicts[u.id].verdict === "NO-GO");
+  const pass = !anyPending && misses.length === 0;
+  return (
+    <div>
+      <ScenarioCard scenario={scenario} />
+      <div className="p-3 mb-3" style={{ border: "1.5px solid " + ink, background: "#FFF" }}>
+        <p className="font-bold text-lg" style={{ fontFamily: mono, color: anyPending ? amber : pass ? goGreen : noRed }}>
+          TASK RESULT: {anyPending ? "GRADING…" : pass ? "GO" : "NO-GO"}
+        </p>
+        <p className="text-xs mt-1" style={{ color: "#5C5B52" }}>
+          The cadre graded every step. Adjust any verdict below — your change is saved in this browser and teaches the cadre for next time. A single NO-GO fails the task.
+        </p>
+      </div>
+      {units.map((u) =>
+        u.isHeader ? (
+          <StepText key={u.id} unit={u} />
+        ) : (
+          (() => {
+            const v = verdicts[u.id] || {};
+            return (
+              <div key={u.id} className="py-2" style={{ borderBottom: "1px solid #E4E2D8" }}>
+                <div className="flex gap-2 items-start justify-between">
+                  <div className="flex-1">
+                    <StepText unit={u} />
+                    <p className="text-xs mt-1 ml-8" style={{ color: "#5C5B52", fontFamily: mono }}>
+                      You said: {recitals[u.id] ? `"${recitals[u.id]}"` : "(nothing)"}
+                    </p>
+                    {v.verdict === "NO-GO" && v.correction && (
+                      <p className="text-xs mt-1 ml-8" style={{ color: noRed }}>{v.correction}</p>
+                    )}
+                  </div>
+                  <div className="pt-2 shrink-0 text-right">
+                    {v.pending ? (
+                      <span className="text-xs italic" style={{ color: olive }}>grading…</span>
+                    ) : (
+                      <div className="flex flex-col items-end gap-1">
+                        <VerdictBadge verdict={v.verdict} source={v.source} />
+                        <GoNoGo compact value={v.verdict || null} onChange={(g) => override(u, g)} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()
+        )
+      )}
+      <p className="text-xs mt-2 italic" style={{ color: "#5C5B52" }}>
+        {exampleCount() > 0 ? `${exampleCount()} board decision(s) learned so far, guiding the cadre.` : "No board decisions recorded yet — adjust a verdict to teach the cadre."}
+      </p>
+      <button onClick={restart} className="mt-3 px-3 py-1.5 text-sm font-bold border rounded" style={{ borderColor: olive, color: olive }}>
+        Run again with a new scenario
+      </button>
     </div>
   );
 }
