@@ -239,12 +239,23 @@ function matchKeywords(transcript, kw) {
 // ============================================================
 const CADRE_PROXY = "https://efmb-trainer-cadre.netlify.app/.netlify/functions/cadre";
 
+// Testing-phase access passphrase. Stored only in this browser; sent as a
+// header so the proxy can gate access. When the gate is lifted server-side
+// (env var removed), the proxy stops returning 401 and this is never needed.
+const TOKEN_STORE = "efmb-cadre-token";
+function getCadreToken() { try { return localStorage.getItem(TOKEN_STORE) || ""; } catch { return ""; } }
+function saveCadreToken(t) { try { localStorage.setItem(TOKEN_STORE, t); } catch {} }
+
 async function callClaude(prompt) {
   const r = await fetch(CADRE_PROXY, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-cadre-token": getCadreToken() },
     body: JSON.stringify({ prompt }),
   });
+  if (r.status === 401) {
+    try { window.dispatchEvent(new Event("cadre-gate-required")); } catch {}
+    throw new Error("gated");
+  }
   if (!r.ok) throw new Error("proxy error " + r.status);
   const d = await r.json();
   return d.text || null;
@@ -673,7 +684,15 @@ function EFMBTrainer() {
   const [cadre, setCadre] = useState(true);
   const [scenario, setScenario] = useState(SCENARIOS[Math.floor(Math.random() * SCENARIOS.length)]);
   const [progress, setProgress] = useState({ stepStats: {}, attempts: [] });
+  const [gateNeeded, setGateNeeded] = useState(false);
+  const [hasToken, setHasToken] = useState(!!getCadreToken());
+  const [tokenDraft, setTokenDraft] = useState("");
   useEffect(() => { loadProgress().then(setProgress); }, []);
+  useEffect(() => {
+    const h = () => { setGateNeeded(true); setHasToken(false); };
+    window.addEventListener("cadre-gate-required", h);
+    return () => window.removeEventListener("cadre-gate-required", h);
+  }, []);
 
   const recordStat = (id, g) => {
     setProgress((prev) => {
@@ -721,6 +740,27 @@ function EFMBTrainer() {
             {cadre ? "TRAIN-UP: CADRE ON" : "TEST WEEK: SILENT"}
           </button>
         </div>
+      )}
+
+      {mode !== "study" && cadre && gateNeeded && (
+        <div className="p-2 mb-3 text-xs" style={{ background: "#EFEDE2", border: "1px solid #D6D3C4", borderRadius: 4 }}>
+          <p style={{ color: "#5C5B52" }}>The AI cadre is gated during testing. Enter the access passphrase to enable it — stored only in this browser. Without it, the keyword check stands in.</p>
+          <div className="mt-1 flex gap-1">
+            <input type="password" value={tokenDraft} onChange={(e) => setTokenDraft(e.target.value)} placeholder="access passphrase"
+              className="flex-1 text-xs p-2 border rounded" style={{ borderColor: "#C9C7BC", background: "#FFF" }} />
+            <button onClick={() => { const t = tokenDraft.trim(); if (t) { saveCadreToken(t); setHasToken(true); setGateNeeded(false); setTokenDraft(""); } }}
+              className="px-2 py-1 text-xs font-bold border rounded" style={{ borderColor: olive, color: olive }}>
+              Save
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode !== "study" && cadre && hasToken && !gateNeeded && (
+        <p className="text-xs mb-3 px-1" style={{ color: "#8A887B" }}>
+          Testing access set ·{" "}
+          <button onClick={() => setGateNeeded(true)} style={{ textDecoration: "underline" }}>change</button>
+        </p>
       )}
 
       {mode === "study" && <StudyMode stats={progress.stepStats} />}

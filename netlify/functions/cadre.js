@@ -13,7 +13,7 @@ function corsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, x-cadre-token",
     "Vary": "Origin",
   };
 }
@@ -32,6 +32,13 @@ export default async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405, cors);
   if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: "forbidden origin" }, 403, cors);
+
+  // Testing-phase gate: enforced only when CADRE_ACCESS_TOKEN is set.
+  // Delete that env var to open the cadre to everyone (no code change).
+  const gate = process.env.CADRE_ACCESS_TOKEN;
+  if (gate && req.headers.get("x-cadre-token") !== gate) {
+    return json({ error: "access passphrase required" }, 401, cors);
+  }
 
   let prompt;
   try {
